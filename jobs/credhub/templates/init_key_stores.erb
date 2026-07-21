@@ -1,11 +1,13 @@
 #!/bin/bash
 
 set -euo pipefail
+umask 077
 
 ## BEGIN CERTIFICATE INSTALLATION
 
 export JAVA_HOME=/var/vcap/packages/openjdk_25.0/jre
 declare -r tmp_dir=/var/vcap/jobs/credhub/tmp
+: > "${tmp_dir}/var-store"
 
 function generate_password() {
   # Do not end this pipeline with `head`: it closes the pipe as soon as it has
@@ -24,10 +26,6 @@ function generate_password() {
 # TLS
 CERT_FILE=/var/vcap/jobs/credhub/config/cert.crt
 PRIVATE_KEY_FILE=/var/vcap/jobs/credhub/config/priv.key
-CERT_ALIAS=credhub_tls_cert
-KEY_STORE_PATH=/var/vcap/jobs/credhub/config/cacerts.jks
-KEY_STORE_PASSWORD="$(generate_password)"
-echo "export KEY_STORE_PASSWORD=${KEY_STORE_PASSWORD}" > "${tmp_dir}/var-store"
 
 # MTLS
 MTLS_CA_CERT_FILE=/var/vcap/jobs/credhub/config/mtls_ca_cert.crt
@@ -61,23 +59,10 @@ cat > ${PRIVATE_KEY_FILE} <<EOL
 <%= p('credhub.tls.private_key') %>
 EOL
 
-# Use Fips-compatible option(s)
-if [ -f "/proc/sys/crypto/fips_enabled" ]; then
-  FIPS_OPTS="-nomac"
-  echo "Using Fips-compatible option(s) to package cert and key with pkcs12"
-else
-  FIPS_OPTS=""
-fi
-
-
-if [ -s ${CERT_FILE} ]; then
-    openssl pkcs12 -export -in ${CERT_FILE} ${FIPS_OPTS} -inkey ${PRIVATE_KEY_FILE} -out cert.p12 -name ${CERT_ALIAS} \
-            -password pass:k0*l*s3cur1tyr0ck$
-
-    ${JAVA_HOME}/bin/keytool -importkeystore \
-            -srckeystore cert.p12 -srcstoretype PKCS12 -srcstorepass k0*l*s3cur1tyr0ck$ \
-            -deststorepass ${KEY_STORE_PASSWORD} -destkeypass ${KEY_STORE_PASSWORD} -destkeystore ${KEY_STORE_PATH} \
-            -alias ${CERT_ALIAS}
+if [ -s "${CERT_FILE}" ]; then
+    PKCS8_KEY_FILE="${tmp_dir}/credhub-key.pk8.pem"
+    openssl pkcs8 -topk8 -nocrypt -in "${PRIVATE_KEY_FILE}" -out "${PKCS8_KEY_FILE}"
+    mv "${PKCS8_KEY_FILE}" "${PRIVATE_KEY_FILE}"
 fi
 
 if [ $(cat $DATABASE_TLS_CA_FILE | wc -c) -ge 2 ]; then
@@ -157,10 +142,15 @@ end
 end %>
 
 # remove intermediate files
-rm -f cert.p12 ${CERT_FILE} ${PRIVATE_KEY_FILE} ${MTLS_CA_CERT_FILE} ${AUTH_SERVER_CA_CERT_FILE}
+rm -f "${tmp_dir}/credhub-key.pk8.pem" ${MTLS_CA_CERT_FILE} ${AUTH_SERVER_CA_CERT_FILE}
 rm -f /var/vcap/jobs/credhub/config/db-tls-ca*.pem
 
 # restrict file permissions
+chown vcap "${CERT_FILE}" "${PRIVATE_KEY_FILE}"
+chmod 600 "${CERT_FILE}" "${PRIVATE_KEY_FILE}"
+# The BPM launcher sources these passwords as vcap before initializing logging.
+chown vcap "${tmp_dir}/var-store"
+chmod 600 "${tmp_dir}/var-store"
 chown vcap /var/vcap/jobs/credhub/config/*.jks
 chmod 600 /var/vcap/jobs/credhub/config/*.jks
 
