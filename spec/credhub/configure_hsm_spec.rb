@@ -106,7 +106,7 @@ describe 'credhub job' do
 
       it 'exits non-zero from every fail-fast check' do
         script = template.render(hsm_manifest)
-        checks = script.scan(/^if \[ ! -[dfx] \/var\/vcap\/packages\/luna-hsm-client.*?\nfi$/m)
+        checks = script.scan(%r{^if \[ ! -[dfx] /var/vcap/packages/luna-hsm-client.*?\nfi$}m)
 
         expect(checks.length).to eq(6)
         checks.each do |check|
