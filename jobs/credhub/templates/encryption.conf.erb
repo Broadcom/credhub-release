@@ -10,8 +10,7 @@ if hsm_providers.any?
 %>
 
 Chrystoki2 = {
-  LibUNIX = /var/vcap/packages/luna-hsm-client-7.4/libs/32/libCryptoki2.so;
-  LibUNIX64 = /var/vcap/packages/luna-hsm-client-7.4/libs/64/libCryptoki2.so;
+  LibUNIX64 = /var/vcap/packages/luna-hsm-client/libs/64/libCryptoki2.so;
 }
 
 Luna = {
@@ -30,14 +29,14 @@ CardReader = {
 
 Misc = {
   PE1746Enabled = 0;
-  ToolsDir = /var/vcap/packages/luna-hsm-client-7.4/bin/64;
+  ToolsDir = /var/vcap/packages/luna-hsm-client/bin/64;
   ProtectedAuthenticationPathFlagStatus = 0;
 
 }
 
 LunaSA Client = {
   ReceiveTimeout = 20000;
-  SSLConfigFile = /var/vcap/packages/luna-hsm-client-7.4/bin/64/openssl.cnf;
+  SSLConfigFile = /var/vcap/packages/luna-hsm-client/openssl.cnf;
   ClientPrivKeyFile = /var/vcap/jobs/credhub/config/client_key.pem;
   ClientCertFile = /var/vcap/jobs/credhub/config/client_cert.pem;
   ServerCAFile = /var/vcap/jobs/credhub/config/hsm_cert.pem;

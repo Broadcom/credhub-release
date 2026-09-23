@@ -32,10 +32,31 @@ if p('credhub.data_storage.require_tls') || p('credhub.authentication.uaa.enable
 end
 %>
 
+<%
+  hsm_provider = p('credhub.encryption.providers').flatten.find { |provider| provider['type'] == "hsm" }
+  luna_classpath = ''
+  if hsm_provider
+    luna_classpath = ':/var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar'
+%>
+JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} -Djava.library.path=/var/vcap/packages/luna-hsm-client/jsp/64"
+<% end %>
+
 export JAVA_HOME='/var/vcap/packages/openjdk_25.0/jre'
 export PATH="$JAVA_HOME/bin:$PATH"
 export JAVA_TOOL_OPTIONS
 
+# LunaProvider.jar is added to the classpath rather than copied into $JAVA_HOME/lib/ext: the
+# extension mechanism was removed in JDK 9, and openjdk_25.0 has no lib/ext directory. That
+# means credhub.jar can no longer be launched with -jar, which ignores -cp, so its Spring Boot
+# launcher is named explicitly instead.
+#
+# --enable-native-access is deliberately not passed via JAVA_TOOL_OPTIONS: per JEP 472, the JDK
+# does not honor restricted-methods flags from that environment variable, only from the literal
+# command line. Applied unconditionally (not just when an HSM provider is configured) so any
+# future native access CredHub or a dependency performs keeps working once a future JDK turns
+# this from a warning into a hard failure.
 java \
-	-jar "credhub.jar" \
+	--enable-native-access=ALL-UNNAMED \
+	-cp "credhub.jar<%= luna_classpath %>" \
+	org.springframework.boot.loader.launch.JarLauncher \
 	--management.server.port="${MANAGEMENT_SERVER_PORT}"

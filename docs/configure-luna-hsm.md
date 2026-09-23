@@ -186,6 +186,74 @@ When generating a new key, it is recommended that you review the list of keys on
     lunash:> partition showContents -partition <partition_name>
     ```
 
+## Install the Luna HSM Client
+
+`credhub-release` does not ship a Luna HSM client. You must install one yourself, under your own Thales entitlement, before deploying CredHub with an `hsm` encryption provider. CredHub will refuse to start without it.
+
+#### Where CredHub looks for it
+
+CredHub loads the client from a fixed path:
+
+```
+/var/vcap/packages/luna-hsm-client
+```
+
+This is not configurable. The client must be delivered as a BOSH package named `luna-hsm-client`, because the BOSH agent owns `/var/vcap/packages` — a symlink or a hand-copied directory there will not survive. A client installed by other means (a vendor RPM under `/usr/safenet/lunaclient`, or a stemcell-baked tree) cannot be used directly.
+
+#### Layout contract
+
+CredHub expects the vendor client tree to be laid out under that path as follows. These five paths are the interface between the client package and CredHub; pre-start checks each one and fails with a message naming the missing path.
+
+| Path under `/var/vcap/packages/luna-hsm-client` | Used for |
+|---|---|
+| `libs/64/libCryptoki2.so` | the PKCS#11 library (`Chrystoki2.LibUNIX64`) |
+| `bin/64/` (must contain an executable `lunacm`) | HA partition group bootstrap (`Misc.ToolsDir`) |
+| `openssl.cnf` | NTLS client TLS config (`LunaSA Client.SSLConfigFile`) |
+| `jsp/LunaProvider.jar` | the JCE provider, added to CredHub's classpath |
+| `jsp/64/libLunaAPI.so` | the provider's native library (`-Djava.library.path`) |
+
+The 10.9.3 Minimal Client tarball satisfies all five paths as shipped, so a package built by untarring it with `--strip-components=1` needs no further normalization. The 10.9.3 Universal Client also keeps `openssl.cnf` at the client root.
+
+`openssl.cnf` is the one file whose location has varied between client flavours — the 7.4 Minimal Client kept it in `bin/64/`, and Thales' DPoD `cvclient-min` uses `etc/`. If the client you package puts it anywhere other than the client root, move it to the package root when building the package.
+
+#### Delivering the client
+
+Build your own BOSH release that carries the vendor client as a package named `luna-hsm-client`, then get that package onto the CredHub VM. The release needs nothing but the package and a job that depends on it; its `packaging` script untars the vendor tarball into `${BOSH_INSTALL_TARGET}`.
+
+How you attach it depends on how CredHub is deployed:
+
+**CredHub as its own BOSH deployment** — `bosh upload-release` your client release, then register a runtime config that adds its job to the `credhub` job:
+
+```yaml
+releases:
+- name: luna-hsm-client
+  version: <your-version>
+
+addons:
+- name: luna-hsm-client
+  jobs:
+  - name: luna-hsm-client
+    release: luna-hsm-client
+  include:
+    jobs:
+    - name: credhub
+      release: credhub
+```
+
+**CredHub colocated on a BOSH Director VM** — a runtime config cannot reach it, because the Director VM is created by `bosh create-env` rather than by a director. Colocate the `luna-hsm-client` job onto the Director's instance group in the `create-env` manifest instead, alongside the `credhub` job.
+
+Either way, the package lands at `/var/vcap/packages/luna-hsm-client`, because that is where BOSH links a job's declared package. Confirm it is populated on the VM before deploying CredHub.
+
+Note that `luna-hsm-client` is **not** listed in the `credhub` job's own `packages:`, since it comes from a different release. BOSH therefore cannot verify the dependency and will not fail the deploy when the client is absent — the pre-start checks described above are the only guard, and they run on every VM start.
+
+#### CredHub owns `/etc/Chrystoki.conf` on the VM
+
+CredHub generates its own `Chrystoki.conf` from the manifest properties below and **overwrites the `/etc/Chrystoki.conf` symlink on every VM start**, pointing it at `/var/vcap/jobs/credhub/config/encryption.conf`.
+
+If your client install wrote its own `Chrystoki.conf` — vendor installers usually write one at the client root and often at `/etc/Chrystoki.conf` too — it is not what CredHub uses, and any `lunacm` or `vtl` command you run by hand on that VM will read CredHub's generated file rather than yours. Do not configure the client by editing `Chrystoki.conf`; configure it through the manifest.
+
+This matters most on the BOSH Director, where CredHub, bbr-credhub, the Director itself and the Luna client job all share one instance group, so `/etc/Chrystoki.conf` is shared between jobs rather than a private file on a dedicated VM.
+
 ## Ready for Deployment 
 
 After completing the above steps, you should have the following information for the CredHub deployment manifest:
@@ -195,6 +263,7 @@ After completing the above steps, you should have the following information for 
 1. [Partition name and password](#create-hsm-partition)
 1. [Client certificate and private key](#establish-a-network-trust-link-between-the-client-and-the-hsms)
 1. [Partition serial numbers](#create-hsm-partition)
+1. A [Luna HSM client installed](#install-the-luna-hsm-client) at `/var/vcap/packages/luna-hsm-client` on the CredHub VM
 
 These should be entered in the manifest as shown below - 
 
