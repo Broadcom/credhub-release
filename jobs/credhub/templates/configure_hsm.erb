@@ -20,7 +20,7 @@ tee_output_to_sys_log "${LOG_DIR}" "configure_hsm"
 # `packages:` list -- it comes from a different release -- so BOSH neither resolves it nor fails
 # the deploy when it is absent. These checks are the only guard on that dependency.
 if [ ! -d /var/vcap/packages/luna-hsm-client ]; then
-  echo "CredHub is configured to use an HSM encryption provider, but no Luna HSM client is installed at /var/vcap/packages/luna-hsm-client. Deliver the client as a BOSH release carrying a package named luna-hsm-client: for a CredHub deployment, upload that release and register a runtime config adding its job to the credhub job; for a CredHub colocated on a Director VM, colocate its job in the bosh create-env manifest, which has no runtime configs. See docs/configure-luna-hsm.md." >&2
+  echo "CredHub is configured to use an HSM encryption provider, but no Luna HSM client is installed at /var/vcap/packages/luna-hsm-client." >&2
   exit 1
 fi
 
@@ -45,7 +45,7 @@ if [ ! -f /var/vcap/packages/luna-hsm-client/jsp/64/libLunaAPI.so ]; then
 fi
 
 if [ ! -f /var/vcap/packages/luna-hsm-client/openssl.cnf ]; then
-  echo "CredHub is configured to use an HSM encryption provider, but openssl.cnf was not found at /var/vcap/packages/luna-hsm-client/openssl.cnf. The 10.9.3 Minimal and Universal clients both ship it at the client root, so a package built by untarring one of those with --strip-components=1 satisfies this as-is. Other flavours move it -- DPoD's cvclient-min uses etc/openssl.cnf, and the 7.4 Minimal Client used bin/64. If yours does, whoever builds the luna-hsm-client package must move it to the package root." >&2
+  echo "CredHub is configured to use an HSM encryption provider, but openssl.cnf was not found at /var/vcap/packages/luna-hsm-client/openssl.cnf." >&2
   exit 1
 fi
 

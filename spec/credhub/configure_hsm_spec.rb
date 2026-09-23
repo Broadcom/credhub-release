@@ -75,14 +75,13 @@ describe 'credhub job' do
     end
 
     context 'when an HSM provider is configured' do
-      it 'fails fast when the operator-installed client package is missing, naming both delivery paths' do
+      it 'fails fast when the operator-installed client package is missing' do
         script = template.render(hsm_manifest)
         message = script.lines.find { |line| line.include?('no Luna HSM client is installed') }
 
         expect(script).to include('if [ ! -d /var/vcap/packages/luna-hsm-client ]; then')
         expect(message).to_not be_nil
-        expect(message).to include('runtime config')
-        expect(message).to include('bosh create-env')
+        expect(message).to include('CredHub is configured to use an HSM encryption provider, but no Luna HSM client is installed at /var/vcap/packages/luna-hsm-client.')
       end
 
       it 'fails fast on every path in the client layout contract' do
@@ -95,13 +94,12 @@ describe 'credhub job' do
         expect(script).to include('if [ ! -f /var/vcap/packages/luna-hsm-client/openssl.cnf ]; then')
       end
 
-      it 'names the other locations vendor clients keep openssl.cnf in' do
+      it 'fails fast when openssl.cnf is missing' do
         script = template.render(hsm_manifest)
         openssl_message = script.lines.find { |line| line.include?('openssl.cnf was not found') }
 
         expect(openssl_message).to_not be_nil
-        expect(openssl_message).to include('etc/openssl.cnf')
-        expect(openssl_message).to include('bin/64')
+        expect(openssl_message).to include('CredHub is configured to use an HSM encryption provider, but openssl.cnf was not found at /var/vcap/packages/luna-hsm-client/openssl.cnf.')
       end
 
       it 'exits non-zero from every fail-fast check' do
