@@ -16,24 +16,43 @@
     }]
     additional_volumes.concat(sample_backend_volume)
   end
-  {
-    'processes' => [
-      'name' => 'credhub',
-      'executable' => '/var/vcap/jobs/credhub/bin/credhub',
-      'env' => {
-        'RUN_DIR' => '/var/vcap/data/run/credhub',
-        'LOG_DIR' => '/var/vcap/sys/log/credhub',
-        'TMP_DIR' => '/var/vcap/data/credhub',
-        'JAVA_HOME' => '/var/vcap/packages/openjdk_25.0/jre',
-        'MAX_HEAP_SIZE' => p('credhub.max_heap_size')
-      },
-      'additional_volumes' => [
+
+  # The operator-supplied Luna client comes from another release, so it is not in this job's
+  # `packages:` list and bpm does not mount it. bpm rejects /var/vcap/packages paths in
+  # additional_volumes, hence the unsafe block. allow_executions is needed to dlopen
+  # libLunaAPI.so and libCryptoki2.so from a bind mount.
+  hsm_provider = p('credhub.encryption.providers').flatten.find { |provider| provider['type'] == 'hsm' }
+
+  process = {
+    'name' => 'credhub',
+    'executable' => '/var/vcap/jobs/credhub/bin/credhub',
+    'env' => {
+      'RUN_DIR' => '/var/vcap/data/run/credhub',
+      'LOG_DIR' => '/var/vcap/sys/log/credhub',
+      'TMP_DIR' => '/var/vcap/data/credhub',
+      'JAVA_HOME' => '/var/vcap/packages/openjdk_25.0/jre',
+      'MAX_HEAP_SIZE' => p('credhub.max_heap_size')
+    },
+    'additional_volumes' => [
+      {
+        'path' => '/var/vcap/data/credhub/exec-tmp',
+        'writable' => true,
+        'allow_executions' => true
+      }
+    ].concat(additional_volumes)
+  }
+
+  if hsm_provider
+    process['unsafe'] = {
+      'unrestricted_volumes' => [
         {
-          'path' => '/var/vcap/data/credhub/exec-tmp',
-          'writable' => true,
+          'path' => '/var/vcap/packages/luna-hsm-client',
+          'writable' => false,
           'allow_executions' => true
         }
-      ].concat(additional_volumes)
-    ]
-  }.to_yaml
+      ]
+    }
+  end
+
+  { 'processes' => [process] }.to_yaml
 %>
