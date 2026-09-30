@@ -49,6 +49,19 @@ if [ ! -f /var/vcap/packages/luna-hsm-client/openssl.cnf ]; then
   exit 1
 fi
 
+# The checks above run as root, which can read anything. CredHub runs as vcap under bpm, so it
+# also has to be able to traverse into the package and read the jar. A package directory that is
+# mode 0700 passes every check above and then fails later with an unhelpful ClassNotFoundException.
+if ! chpst -u vcap:vcap test -r /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar; then
+  echo "CredHub is configured to use an HSM encryption provider, but /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar is not accessible to the vcap user, which CredHub runs as. Check the modes with: namei -l /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar. The top-level package directory is most often the culprit (mode 0700); add chmod 755 \"\${BOSH_INSTALL_TARGET}\" to the luna-hsm-client package's packaging script." >&2
+  exit 1
+fi
+
+if ! chpst -u vcap:vcap test -x /var/vcap/packages/luna-hsm-client/bin/64/lunacm; then
+  echo "CredHub is configured to use an HSM encryption provider, but /var/vcap/packages/luna-hsm-client/bin/64/lunacm is not accessible to the vcap user. Check the modes with: namei -l /var/vcap/packages/luna-hsm-client/bin/64/lunacm. The top-level package directory is most often the culprit (mode 0700); add chmod 755 \"\${BOSH_INSTALL_TARGET}\" to the luna-hsm-client package's packaging script." >&2
+  exit 1
+fi
+
 cat > /var/vcap/jobs/credhub/config/client_cert.pem <<EOL
 <%= hsm_provider['client_certificate'] %>
 EOL

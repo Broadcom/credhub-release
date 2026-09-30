@@ -242,6 +242,8 @@ addons:
 
 **CredHub colocated on a BOSH Director VM** — a runtime config cannot reach it, because the Director VM is created by `bosh create-env` rather than by a director. Colocate the `luna-hsm-client` job onto the Director's instance group in the `create-env` manifest instead, alongside the `credhub` job.
 
+The package must be readable by the `vcap` user, because CredHub runs as `vcap` under bpm. BOSH does not enforce this, and the pre-start checks run as root, so a package whose top-level directory is mode `0700` passes most of them. Add `chmod 755 "${BOSH_INSTALL_TARGET}"` as the last line of the `packaging` script so the package directory is traversable. The CredHub pre-start fails with a message naming the path if `vcap` cannot read `LunaProvider.jar` or execute `lunacm`.
+
 Either way, the package lands at `/var/vcap/packages/luna-hsm-client`, because that is where BOSH links a job's declared package. Confirm it is populated on the VM before deploying CredHub.
 
 Note that `luna-hsm-client` is **not** listed in the `credhub` job's own `packages:`, since it comes from a different release. BOSH therefore cannot verify the dependency and will not fail the deploy when the client is absent — the pre-start checks described above are the only guard, and they run on every VM start.
