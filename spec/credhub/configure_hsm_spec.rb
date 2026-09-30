@@ -113,6 +113,20 @@ describe 'credhub job' do
         end
       end
 
+      it 'fails fast when the vcap user cannot read the client package' do
+        script = template.render(hsm_manifest)
+        jar_check = script.match(/^if ! chpst -u vcap:vcap test -r [^\n]*LunaProvider\.jar; then\n.*?\nfi$/m)
+        lunacm_check = script.match(%r{^if ! chpst -u vcap:vcap test -x [^\n]*bin/64/lunacm; then\n.*?\nfi$}m)
+
+        [jar_check, lunacm_check].each do |check|
+          expect(check).to_not be_nil
+          expect(check[0]).to include('not accessible to the vcap user')
+          expect(check[0]).to include('chmod 755 \\"\\${BOSH_INSTALL_TARGET}\\"')
+          expect(check[0]).to include('>&2')
+          expect(check[0]).to include('exit 1')
+        end
+      end
+
       it 'still writes the client and HSM PEMs' do
         script = template.render(hsm_manifest)
 
