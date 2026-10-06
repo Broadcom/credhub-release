@@ -79,34 +79,57 @@ EOL
 ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/Chrystoki.conf
 
 <%
+  require 'shellwords'
   primary_server = hsm_servers.shift
   primary_serial_number = primary_server['partition_serial_number']
   ha_group_label = hsm_provider['partition']
+  partition_password = hsm_provider['partition_password']
 %>
 
 PATH=$PATH:/var/vcap/packages/luna-hsm-client/bin/64
+PARTITION_PASSWORD=<%= Shellwords.escape(partition_password) %>
 
 if ! lunacm -q haGroup listGroups -group "<%= ha_group_label %>" -password ""; then
   echo "HSM HA appears to be uninitialized. Performing HA HSM setup."
 
   echo "Creating new HSM HA group."
 
-  # TODO: what is up with "echo copy" in these commands?
-  NEW_GROUP_OUTPUT=$(echo copy | lunacm -q haGroup createGroup -label "<%= ha_group_label %>" -serialNumber <%= primary_serial_number %> -password <%= hsm_provider['partition_password'] %>)
-  GROUPID=$(echo $NEW_GROUP_OUTPUT | grep -o -E 'HA Group Number: .*' | awk '{print $4}')
+  if ! NEW_GROUP_OUTPUT=$(echo copy | lunacm -q haGroup createGroup -label "<%= ha_group_label %>" -serialNumber <%= primary_serial_number %> -password "$PARTITION_PASSWORD" 2>&1) || echo "${NEW_GROUP_OUTPUT}" | grep -qE 'Error:|CKR_'; then
+    echo "Failed to create HSM HA group for partition '<%= ha_group_label %>'. Please verify the partition password and partition configuration." >&2
+    echo "${NEW_GROUP_OUTPUT}" >&2
+    exit 1
+  fi
+
+  GROUPID=$(printf '%s\n' "$NEW_GROUP_OUTPUT" | grep -m1 -o -E 'HA Group Number: .*' | awk '{print $4}' || true)
+  if [ -z "$GROUPID" ]; then
+    echo "Failed to create HSM HA group for partition '<%= ha_group_label %>': could not determine HA Group Number. Please verify the partition password and partition configuration." >&2
+    echo "${NEW_GROUP_OUTPUT}" >&2
+    exit 1
+  fi
+  echo "${NEW_GROUP_OUTPUT}"
 
   echo "Adding members to HSM HA group."
 
 <% hsm_servers.each do |hsm_server| %>
   echo "Adding server with partition serial number <%= hsm_server['partition_serial_number'] %> to HSM HA group."
 
-  echo copy | lunacm -q haGroup addMember -group $GROUPID -serialNumber <%= hsm_server['partition_serial_number'] %> -password <%= hsm_provider['partition_password'] %>
+  if ! ADD_MEMBER_OUTPUT=$(echo copy | lunacm -q haGroup addMember -group "$GROUPID" -serialNumber <%= hsm_server['partition_serial_number'] %> -password "$PARTITION_PASSWORD" 2>&1) || echo "${ADD_MEMBER_OUTPUT}" | grep -qE 'Error:|CKR_'; then
+    echo "Failed to add partition serial number <%= hsm_server['partition_serial_number'] %> to HSM HA group '<%= ha_group_label %>'. Please verify that the partition password matches across all HSM servers." >&2
+    echo "${ADD_MEMBER_OUTPUT}" >&2
+    exit 1
+  fi
+  echo "${ADD_MEMBER_OUTPUT}"
 <% end %>
 
   echo "Finished adding members to HSM HA group."
 
   echo "Synchronizing HSM HA group."
-  lunacm -q haGroup synchronize -group $GROUPID -password <%= hsm_provider['partition_password'] %>
+  if ! SYNC_OUTPUT=$(lunacm -q haGroup synchronize -group "$GROUPID" -password "$PARTITION_PASSWORD" 2>&1) || echo "${SYNC_OUTPUT}" | grep -qE 'Error:|CKR_'; then
+    echo "Failed to synchronize HSM HA group '<%= ha_group_label %>'. Please verify that the partition password matches across all HSM servers." >&2
+    echo "${SYNC_OUTPUT}" >&2
+    exit 1
+  fi
+  echo "${SYNC_OUTPUT}"
 else
   echo "HSM HA appears to be initialized. Skipping HSM HA setup."
 fi
