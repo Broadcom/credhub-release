@@ -19,6 +19,18 @@ describe 'credhub job' do
       mock_lunacm = File.join(bin_dir, 'lunacm')
       File.write(mock_lunacm, "#!/usr/bin/env bash\n#{mock_body}\n")
       FileUtils.chmod(0o755, mock_lunacm)
+      # Stands in for util-linux script(1): checks the flags configure_hsm relies on, then runs the
+      # command without a pty (macOS script(1) takes different flags).
+      mock_script = File.join(bin_dir, 'script')
+      File.write(mock_script, <<~BASH)
+        #!/usr/bin/env bash
+        if [ "$#" -ne 7 ] || [ "$1 $2 $3 $4 $5" != "-q -E never -e -c" ] || [ "$7" != /dev/null ]; then
+          echo "unexpected script arguments: $*" >&2
+          exit 99
+        fi
+        exec bash -c "$6"
+      BASH
+      FileUtils.chmod(0o755, mock_script)
       bin_dir
     end
 
@@ -184,9 +196,10 @@ describe 'credhub job' do
 
         expect(script).to include('PARTITION_PASSWORD=some-partition-password')
         expect(script).to include('lunacm -q haGroup listGroups -group "some-partition" -password ""')
-        expect(script).to include('haGroup createGroup -label "some-partition" -serialNumber 111111 -password "$PARTITION_PASSWORD"')
-        expect(script).to include('haGroup addMember -group "$GROUPID" -serialNumber 222222 -password "$PARTITION_PASSWORD"')
-        expect(script).to include('haGroup synchronize -group "$GROUPID" -password "$PARTITION_PASSWORD"')
+        expect(script).to include('"lunacm -q haGroup createGroup -label \"some-partition\" -serialNumber 111111"')
+        expect(script).to include('"lunacm -q haGroup addMember -group \"$GROUPID\" -serialNumber 222222"')
+        expect(script).to include('"lunacm -q haGroup synchronize -group \"$GROUPID\""')
+        expect(script).to_not include('-password "$PARTITION_PASSWORD"')
       end
 
       it 'no longer references the bundled luna-hsm-client-7.4 package' do
@@ -208,7 +221,7 @@ describe 'credhub job' do
 
         expect(script).to include('PARTITION_PASSWORD=')
         expect(script).to include('lunacm -q haGroup listGroups -group "special-partition" -password ""')
-        expect(script).to include('-password "$PARTITION_PASSWORD"')
+        expect(script).to include('printf \'%s\ncopy\n\' "$PARTITION_PASSWORD" | script')
       end
 
       it 'emits a shell script with valid bash syntax' do
@@ -223,26 +236,23 @@ describe 'credhub job' do
 
         Dir.mktmpdir do |dir|
           log_file = File.join(dir, 'captured_passwords.log')
+          argv_log = File.join(dir, 'captured_argv.log')
           mock_body = <<~BASH
             cmd="$*"
+            printf '%s\\n' "$cmd" >> "$ARGV_LOG"
             if [[ "$cmd" == *"listGroups"* ]]; then
               exit 1 # simulate uninitialized HA group
             fi
-            while [ $# -gt 0 ]; do
-              if [ "$1" = "-password" ]; then
-                echo "$2" >> "$LOG_FILE"
-                shift 2
-              else
-                shift
-              fi
-            done
+            IFS= read -r pw
+            printf '%s\\n' "$pw" >> "$LOG_FILE"
             if [[ "$cmd" == *"createGroup"* ]]; then
               echo "HA Group Number: 998877"
             fi
             exit 0
           BASH
 
-          stdout, stderr, status = run_ha_setup(script, mock_body, env: { 'LOG_FILE' => log_file })
+          stdout, stderr, status = run_ha_setup(script, mock_body,
+                                               env: { 'LOG_FILE' => log_file, 'ARGV_LOG' => argv_log })
           expect(status.exitstatus).to eq(0), "Script failed under set -eu: stderr=#{stderr}, stdout=#{stdout}"
           expect(stderr).to_not include('unbound variable')
 
@@ -251,6 +261,7 @@ describe 'credhub job' do
           captured.each do |delivered_pw|
             expect(delivered_pw).to eq(special_password)
           end
+          expect(File.read(argv_log)).to_not include(special_password)
         end
       end
     end
@@ -307,6 +318,19 @@ describe 'credhub job' do
         _stdout, stderr, status = run_ha_setup(script, mock_body)
         expect(status.exitstatus).to eq(1)
         expect(stderr).to include("Failed to create HSM HA group for partition 'some-partition': could not determine HA Group Number")
+      end
+
+      it 'strips the carriage return the pty adds to the HA group number' do
+        script = template.render(hsm_manifest)
+        mock_body = <<~BASH
+          if [[ "$*" == *"listGroups"* ]]; then exit 1; fi
+          if [[ "$*" == *"createGroup"* ]]; then printf 'HA Group Number: 12345\\r\\n'; fi
+          if [[ "$*" == *"addMember"* && "$*" != *'-group 12345 '* ]]; then echo "Error: bad group: $*"; fi
+          exit 0
+        BASH
+
+        stdout, stderr, status = run_ha_setup(script, mock_body)
+        expect(status.exitstatus).to eq(0), "stderr=#{stderr}, stdout=#{stdout}"
       end
 
       it 'fails with a clear error referencing the partition serial number when addMember fails' do
