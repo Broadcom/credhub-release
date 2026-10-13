@@ -19,8 +19,13 @@ describe 'credhub job' do
       mock_lunacm = File.join(bin_dir, 'lunacm')
       File.write(mock_lunacm, "#!/usr/bin/env bash\n#{mock_body}\n")
       FileUtils.chmod(0o755, mock_lunacm)
-      # Stands in for util-linux script(1): checks the flags configure_hsm relies on, then runs the
-      # command without a pty (macOS script(1) takes different flags).
+      write_mock_script(bin_dir)
+      bin_dir
+    end
+
+    # Stands in for util-linux script(1): checks the flags configure_hsm relies on, then runs the
+    # command without a pty (macOS script(1) takes different flags).
+    def write_mock_script(bin_dir)
       mock_script = File.join(bin_dir, 'script')
       File.write(mock_script, <<~BASH)
         #!/usr/bin/env bash
@@ -31,7 +36,6 @@ describe 'credhub job' do
         exec bash -c "$6"
       BASH
       FileUtils.chmod(0o755, mock_script)
-      bin_dir
     end
 
     def run_ha_setup(script, mock_body, env: {})
@@ -252,7 +256,7 @@ describe 'credhub job' do
           BASH
 
           stdout, stderr, status = run_ha_setup(script, mock_body,
-                                               env: { 'LOG_FILE' => log_file, 'ARGV_LOG' => argv_log })
+                                                env: { 'LOG_FILE' => log_file, 'ARGV_LOG' => argv_log })
           expect(status.exitstatus).to eq(0), "Script failed under set -eu: stderr=#{stderr}, stdout=#{stdout}"
           expect(stderr).to_not include('unbound variable')
 
