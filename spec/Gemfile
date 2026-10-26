@@ -5,4 +5,4 @@ source ENV['GEMFILE_SOURCE'] || 'https://rubygems.org'
 
 gem 'bosh-template'
 gem 'rspec'
-gem 'rubocop', '~> 1.92.0'
+gem 'rubocop', '~> 1.92.1'
