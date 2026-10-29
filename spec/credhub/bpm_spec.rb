@@ -120,5 +120,58 @@ describe 'credhub job' do
         )
       end
     end
+
+    context 'when an HSM provider is configured' do
+      it 'mounts the operator-supplied luna-hsm-client package read-only with executions allowed' do
+        manifest = {
+          'credhub' => {
+            'encryption' => {
+              'providers' => [
+                {
+                  'name' => 'primary',
+                  'type' => 'hsm',
+                  'connection_properties' => {
+                    'partition' => 'some-partition',
+                    'partition_password' => 'some-partition-password'
+                  }
+                }
+              ]
+            }
+          }
+        }
+        rendered_template = template.render(manifest)
+
+        unrestricted_volumes = YAML.safe_load(rendered_template)['processes'][0]['unsafe']['unrestricted_volumes']
+        expect(unrestricted_volumes).to eq(
+          [
+            {
+              'path' => '/var/vcap/packages/luna-hsm-client',
+              'writable' => false,
+              'allow_executions' => true
+            }
+          ]
+        )
+      end
+    end
+
+    context 'when no HSM provider is configured' do
+      it 'does not add any unsafe volumes' do
+        manifest = {
+          'credhub' => {
+            'encryption' => {
+              'providers' => [
+                {
+                  'name' => 'internal',
+                  'type' => 'internal'
+                }
+              ]
+            }
+          }
+        }
+        rendered_template = template.render(manifest)
+
+        expect(YAML.safe_load(rendered_template)['processes'][0]).to_not have_key('unsafe')
+      end
+    end
   end
 end

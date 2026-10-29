@@ -16,6 +16,52 @@ tee_output_to_sys_log "${LOG_DIR}" "configure_hsm"
     hsm_servers = hsm_provider['servers']
 %>
 
+# The Luna client is supplied by the operator, not by this release. It is not in credhub's
+# `packages:` list -- it comes from a different release -- so BOSH neither resolves it nor fails
+# the deploy when it is absent. These checks are the only guard on that dependency.
+if [ ! -d /var/vcap/packages/luna-hsm-client ]; then
+  echo "CredHub is configured to use an HSM encryption provider, but no Luna HSM client is installed at /var/vcap/packages/luna-hsm-client." >&2
+  exit 1
+fi
+
+if [ ! -f /var/vcap/packages/luna-hsm-client/libs/64/libCryptoki2.so ]; then
+  echo "CredHub is configured to use an HSM encryption provider, but libCryptoki2.so was not found at /var/vcap/packages/luna-hsm-client/libs/64/libCryptoki2.so. The luna-hsm-client package must lay the vendor client out as libs/64/libCryptoki2.so, bin/64/, jsp/LunaProvider.jar and jsp/64/libLunaAPI.so." >&2
+  exit 1
+fi
+
+if [ ! -x /var/vcap/packages/luna-hsm-client/bin/64/lunacm ]; then
+  echo "CredHub is configured to use an HSM encryption provider, but no executable lunacm was found at /var/vcap/packages/luna-hsm-client/bin/64/lunacm. CredHub uses it to bootstrap the HA partition group, so the vendor client's bin/64 directory must be packaged with its execute bits intact." >&2
+  exit 1
+fi
+
+if [ ! -f /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar ]; then
+  echo "CredHub is configured to use an HSM encryption provider, but LunaProvider.jar was not found at /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar. The luna-hsm-client package must include the vendor client's jsp directory." >&2
+  exit 1
+fi
+
+if [ ! -f /var/vcap/packages/luna-hsm-client/jsp/64/libLunaAPI.so ]; then
+  echo "CredHub is configured to use an HSM encryption provider, but libLunaAPI.so was not found at /var/vcap/packages/luna-hsm-client/jsp/64/libLunaAPI.so. The luna-hsm-client package must include the vendor client's jsp/64 directory." >&2
+  exit 1
+fi
+
+if [ ! -f /var/vcap/packages/luna-hsm-client/openssl.cnf ]; then
+  echo "CredHub is configured to use an HSM encryption provider, but openssl.cnf was not found at /var/vcap/packages/luna-hsm-client/openssl.cnf." >&2
+  exit 1
+fi
+
+# The checks above run as root, which can read anything. CredHub runs as vcap under bpm, so it
+# also has to be able to traverse into the package and read the jar. A package directory that is
+# mode 0700 passes every check above and then fails later with an unhelpful ClassNotFoundException.
+if ! chpst -u vcap:vcap test -r /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar; then
+  echo "CredHub is configured to use an HSM encryption provider, but /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar is not accessible to the vcap user, which CredHub runs as. Check the modes with: namei -l /var/vcap/packages/luna-hsm-client/jsp/LunaProvider.jar. The top-level package directory is most often the culprit (mode 0700); add chmod 755 \"\${BOSH_INSTALL_TARGET}\" to the luna-hsm-client package's packaging script." >&2
+  exit 1
+fi
+
+if ! chpst -u vcap:vcap test -x /var/vcap/packages/luna-hsm-client/bin/64/lunacm; then
+  echo "CredHub is configured to use an HSM encryption provider, but /var/vcap/packages/luna-hsm-client/bin/64/lunacm is not accessible to the vcap user. Check the modes with: namei -l /var/vcap/packages/luna-hsm-client/bin/64/lunacm. The top-level package directory is most often the culprit (mode 0700); add chmod 755 \"\${BOSH_INSTALL_TARGET}\" to the luna-hsm-client package's packaging script." >&2
+  exit 1
+fi
+
 cat > /var/vcap/jobs/credhub/config/client_cert.pem <<EOL
 <%= hsm_provider['client_certificate'] %>
 EOL
@@ -32,39 +78,61 @@ EOL
 
 ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/Chrystoki.conf
 
-# JVM 8 - WILL NOT WORK ON JVM 11
-cp /var/vcap/packages/luna-hsm-client-7.4/jsp/LunaProvider.jar $JAVA_HOME/lib/ext/
-cp /var/vcap/packages/luna-hsm-client-7.4/jsp/64/libLunaAPI.so $JAVA_HOME/lib/ext/
-
 <%
+  require 'shellwords'
   primary_server = hsm_servers.shift
   primary_serial_number = primary_server['partition_serial_number']
   ha_group_label = hsm_provider['partition']
+  partition_password = hsm_provider['partition_password']
 %>
 
-PATH=$PATH:/var/vcap/packages/luna-hsm-client-7.4/bin/64
+PATH=$PATH:/var/vcap/packages/luna-hsm-client/bin/64
+PARTITION_PASSWORD=<%= Shellwords.escape(partition_password) %>
+
+# -password on the lunacm command line would expose the password in the process list, so lunacm
+# prompts for it and the answer is typed on a pty. --echo never keeps it out of the output.
 
 if ! lunacm -q haGroup listGroups -group "<%= ha_group_label %>" -password ""; then
   echo "HSM HA appears to be uninitialized. Performing HA HSM setup."
 
   echo "Creating new HSM HA group."
 
-  # TODO: what is up with "echo copy" in these commands?
-  NEW_GROUP_OUTPUT=$(echo copy | lunacm -q haGroup createGroup -label "<%= ha_group_label %>" -serialNumber <%= primary_serial_number %> -password <%= hsm_provider['partition_password'] %>)
-  GROUPID=$(echo $NEW_GROUP_OUTPUT | grep -o -E 'HA Group Number: .*' | awk '{print $4}')
+  if ! NEW_GROUP_OUTPUT=$(printf '%s\ncopy\n' "$PARTITION_PASSWORD" | script -q -E never -e -c "lunacm -q haGroup createGroup -label \"<%= ha_group_label %>\" -serialNumber <%= primary_serial_number %>" /dev/null 2>&1) || echo "${NEW_GROUP_OUTPUT}" | grep -qE 'Error:|CKR_'; then
+    echo "Failed to create HSM HA group for partition '<%= ha_group_label %>'. Please verify the partition password and partition configuration." >&2
+    echo "${NEW_GROUP_OUTPUT}" >&2
+    exit 1
+  fi
+
+  GROUPID=$(printf '%s\n' "${NEW_GROUP_OUTPUT//$'\r'/}" | grep -m1 -o -E 'HA Group Number: .*' | awk '{print $4}' || true)
+  if [ -z "$GROUPID" ]; then
+    echo "Failed to create HSM HA group for partition '<%= ha_group_label %>': could not determine HA Group Number. Please verify the partition password and partition configuration." >&2
+    echo "${NEW_GROUP_OUTPUT}" >&2
+    exit 1
+  fi
+  echo "${NEW_GROUP_OUTPUT}"
 
   echo "Adding members to HSM HA group."
 
 <% hsm_servers.each do |hsm_server| %>
   echo "Adding server with partition serial number <%= hsm_server['partition_serial_number'] %> to HSM HA group."
 
-  echo copy | lunacm -q haGroup addMember -group $GROUPID -serialNumber <%= hsm_server['partition_serial_number'] %> -password <%= hsm_provider['partition_password'] %>
+  if ! ADD_MEMBER_OUTPUT=$(printf '%s\ncopy\n' "$PARTITION_PASSWORD" | script -q -E never -e -c "lunacm -q haGroup addMember -group \"$GROUPID\" -serialNumber <%= hsm_server['partition_serial_number'] %>" /dev/null 2>&1) || echo "${ADD_MEMBER_OUTPUT}" | grep -qE 'Error:|CKR_'; then
+    echo "Failed to add partition serial number <%= hsm_server['partition_serial_number'] %> to HSM HA group '<%= ha_group_label %>'. Please verify that the partition password matches across all HSM servers." >&2
+    echo "${ADD_MEMBER_OUTPUT}" >&2
+    exit 1
+  fi
+  echo "${ADD_MEMBER_OUTPUT}"
 <% end %>
 
   echo "Finished adding members to HSM HA group."
 
   echo "Synchronizing HSM HA group."
-  lunacm -q haGroup synchronize -group $GROUPID -password <%= hsm_provider['partition_password'] %>
+  if ! SYNC_OUTPUT=$(printf '%s\n' "$PARTITION_PASSWORD" | script -q -E never -e -c "lunacm -q haGroup synchronize -group \"$GROUPID\"" /dev/null 2>&1) || echo "${SYNC_OUTPUT}" | grep -qE 'Error:|CKR_'; then
+    echo "Failed to synchronize HSM HA group '<%= ha_group_label %>'. Please verify that the partition password matches across all HSM servers." >&2
+    echo "${SYNC_OUTPUT}" >&2
+    exit 1
+  fi
+  echo "${SYNC_OUTPUT}"
 else
   echo "HSM HA appears to be initialized. Skipping HSM HA setup."
 fi

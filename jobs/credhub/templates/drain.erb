@@ -8,8 +8,15 @@ set -eu
 
 <% if active_provider['type'] == 'hsm' %>
     <% ha_group_label = active_provider['connection_properties']['partition'] %>
-    PATH=$PATH:/var/vcap/packages/luna-hsm-client-7.4/bin/64
-    lunacm -q haGroup deleteGroup -label <%= ha_group_label %> > /dev/null
+    # The Luna client is supplied by the operator and is not in credhub's `packages:` list, so
+    # BOSH does not guarantee it is linked here. Without this guard an absent client would abort
+    # drain with 127 under `set -eu`, wedging the very deploy that would fix the configuration.
+    if [ -x /var/vcap/packages/luna-hsm-client/bin/64/lunacm ]; then
+      PATH=$PATH:/var/vcap/packages/luna-hsm-client/bin/64
+      lunacm -q haGroup deleteGroup -label <%= ha_group_label %> > /dev/null
+    else
+      echo "No Luna HSM client at /var/vcap/packages/luna-hsm-client; skipping HA group teardown." >&2
+    fi
 <% end %>
 
 # Drain scripts must print a number to stdout:
