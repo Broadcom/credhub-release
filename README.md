@@ -29,6 +29,24 @@ releases:
 [2]:https://bosh.io/releases/github.com/pivotal-cf/credhub-release?all=1
 [3]:https://bosh.io/jobs/credhub?source=github.com/pivotal-cf/credhub-release
 
+### TLS certificate storage
+
+CredHub loads `credhub.tls.certificate` and `credhub.tls.private_key` directly
+through Spring Boot's PEM TLS support. Supply the leaf certificate first,
+followed by any intermediate certificates. Pre-start normalizes the private key
+to unencrypted PKCS#8 and retains `config/cert.crt` and `config/priv.key` under the
+CredHub job directory, owned by `vcap` with mode `0600`. These files must remain
+available while CredHub runs.
+The `tmp/var-store` password file is also owned by `vcap` with mode `0600`:
+pre-start runs as root, but the BPM launcher must source it as `vcap` before
+initializing logging or starting Java.
+
+Loading PEM files directly avoids the OpenSSL PKCS#12 password-derivation path
+that fails with the Noble FIPS provider. Existing mutual-TLS client authentication
+and the mutual-TLS, database, and UAA truststores are unchanged. The runtime
+cryptographic providers still require separate FIPS 140-3 validation.
+
+
 ## Reporting a Vulnerability
 
 We strongly encourage people to report security vulnerabilities privately to our security team before disclosing them in a public forum.

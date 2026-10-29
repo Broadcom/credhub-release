@@ -20,10 +20,8 @@
         'enabled' => true,
         'enabled_protocols' => 'TLSv1.2,TLSv1.3',
         'ciphers' => ciphers.join(','),
-        'key_store' => '/var/vcap/jobs/credhub/config/cacerts.jks',
-        'key_password' => '${KEY_STORE_PASSWORD}',
-        'key_store_password' => '${KEY_STORE_PASSWORD}',
-        'key_alias' => 'credhub_tls_cert',
+        'certificate' => '/var/vcap/jobs/credhub/config/cert.crt',
+        'certificate-private-key' => '/var/vcap/jobs/credhub/config/priv.key',
       }
     },
     'certificates' => {
