@@ -393,6 +393,8 @@ builds:
     version: 2.15.25
   c140bef2-227e-4164-4f42-452b5480b092:
     version: 1.7.2
+  c16036e2-d6c2-4589-48dc-539fda8f600c:
+    version: 2.16.0
   c18e1da1-3176-4aea-6bbe-c7780e499c14:
     version: 1.2.0
   c2022ed6-241b-4af8-5538-dab6bb1e8faf:
