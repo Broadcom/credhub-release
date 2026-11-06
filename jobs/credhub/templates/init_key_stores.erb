@@ -151,7 +151,10 @@ chmod 600 "${CERT_FILE}" "${PRIVATE_KEY_FILE}"
 # The BPM launcher sources these passwords as vcap before initializing logging.
 chown vcap "${tmp_dir}/var-store"
 chmod 600 "${tmp_dir}/var-store"
-chown vcap /var/vcap/jobs/credhub/config/*.jks
-chmod 600 /var/vcap/jobs/credhub/config/*.jks
+for trust_store in /var/vcap/jobs/credhub/config/*.jks; do
+  [ -f "${trust_store}" ] || continue
+  chown vcap "${trust_store}"
+  chmod 600 "${trust_store}"
+done
 
 ## END CERTIFICATE INSTALLATION
