@@ -46,7 +46,6 @@ that fails with the Noble FIPS provider. Existing mutual-TLS client authenticati
 and the mutual-TLS, database, and UAA truststores are unchanged. The runtime
 cryptographic providers still require separate FIPS 140-3 validation.
 
-
 ## Reporting a Vulnerability
 
 We strongly encourage people to report security vulnerabilities privately to our security team before disclosing them in a public forum.
