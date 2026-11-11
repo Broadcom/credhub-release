@@ -10,6 +10,34 @@ describe 'credhub job' do
   describe 'bin/pre-start template' do
     let(:template) { job.template('bin/pre-start') }
 
+    %w[hsm internal].each do |provider_type|
+      it "restricts config ownership and permissions before initialization with an #{provider_type} provider" do
+        manifest = {
+          'credhub' => {
+            'tls' => { 'certificate' => 'some-certificate', 'private_key' => 'some-key' },
+            'encryption' => { 'providers' => [{ 'name' => 'primary', 'type' => provider_type }] }
+          }
+        }
+        script = template.render(manifest)
+        commands = [
+          'chown -R vcap /var/vcap/jobs/credhub/config',
+          'chmod -R g-rwx,o-rwx /var/vcap/jobs/credhub/config/*',
+          '/var/vcap/jobs/credhub/bin/init_key_stores.sh'
+        ]
+        if provider_type == 'hsm'
+          commands << '/var/vcap/jobs/credhub/bin/configure_hsm.sh'
+        else
+          expect(script).not_to include('/var/vcap/jobs/credhub/bin/configure_hsm.sh')
+        end
+
+        positions = commands.map do |command|
+          expect(script.scan(command).length).to eq(1)
+          script.index(command)
+        end
+        expect(positions).to eq(positions.sort)
+      end
+    end
+
     context 'when both keys and providers are nested arrays' do
       it 'flattens them into two arrays' do
         manifest = {

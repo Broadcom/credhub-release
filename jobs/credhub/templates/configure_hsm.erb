@@ -66,9 +66,17 @@ cat > /var/vcap/jobs/credhub/config/client_cert.pem <<EOL
 <%= hsm_provider['client_certificate'] %>
 EOL
 
+# Keep the client private key private from the moment it is created.
+(
+  umask 077
+
 cat > /var/vcap/jobs/credhub/config/client_key.pem <<EOL
 <%= hsm_provider['client_key'] %>
 EOL
+
+  chmod 600 /var/vcap/jobs/credhub/config/client_key.pem
+  chown vcap /var/vcap/jobs/credhub/config/client_key.pem
+)
 
 cat > /var/vcap/jobs/credhub/config/hsm_cert.pem <<EOL
 <% hsm_servers.each do |hsm| %>
