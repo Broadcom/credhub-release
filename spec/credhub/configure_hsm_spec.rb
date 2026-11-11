@@ -178,6 +178,59 @@ describe 'credhub job' do
         expect(script).to include('HSM-CERT-2')
       end
 
+      [false, true].each do |existing_files|
+        it "restricts only the HSM client private key and preserves the caller's umask with #{existing_files ? 'existing' : 'new'} files" do
+          script = template.render(hsm_manifest)
+          first_write = script.index('cat > /var/vcap/jobs/credhub/config/client_cert.pem')
+          # Run the section after the dependency checks and before the system symlink/HA setup.
+          pem_start = script.rindex("\nfi\n", first_write) + "\nfi\n".length
+          pem_end = script.index('ln -f -s /var/vcap/jobs/credhub/config/encryption.conf')
+          expected_pems = {
+            'client_cert.pem' => "CLIENT-CERT\n",
+            'client_key.pem' => "CLIENT-KEY\n",
+            'hsm_cert.pem' => "HSM-CERT-1\n\nHSM-CERT-2"
+          }
+
+          Dir.mktmpdir do |dir|
+            unrelated = File.join(dir, 'unrelated.pem')
+            File.write(unrelated, 'unrelated')
+            File.chmod(0o644, unrelated)
+            if existing_files
+              expected_pems.each_key do |name|
+                path = File.join(dir, name)
+                File.write(path, 'old content')
+                File.chmod(0o644, path)
+              end
+            end
+
+            pem_setup = script[pem_start...pem_end].gsub('/var/vcap/jobs/credhub/config', dir)
+            # Record ownership requests without requiring root or a local vcap account.
+            test_script = <<~BASH
+              set -eu
+              umask 022
+              chown() { printf '%s\\n' "$@"; }
+              # For new files, verify creation modes without allowing chmod to repair them.
+              #{'chmod() { :; }' unless existing_files}
+              #{pem_setup}
+              touch '#{dir}/after-setup'
+            BASH
+            stdout, stderr, status = Open3.capture3('bash', stdin_data: test_script)
+
+            expect(status.success?).to be(true), "#{stdout}\n#{stderr}"
+            expect(stdout.lines.map(&:chomp)).to eq(['vcap', File.join(dir, 'client_key.pem')])
+            expected_pems.each do |name, contents|
+              path = File.join(dir, name)
+              expected_mode = name == 'client_key.pem' ? 0o600 : 0o644
+              expect(File.stat(path).mode & 0o777).to eq(expected_mode)
+              expect(File.read(path)).to include(contents)
+            end
+            expect(File.stat(unrelated).mode & 0o777).to eq(0o644)
+            expect(File.read(unrelated)).to eq('unrelated')
+            expect(File.stat(File.join(dir, 'after-setup')).mode & 0o777).to eq(0o644)
+          end
+        end
+      end
+
       it 'still symlinks the generated encryption.conf to /etc/Chrystoki.conf' do
         expect(template.render(hsm_manifest))
           .to include('ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/Chrystoki.conf')
