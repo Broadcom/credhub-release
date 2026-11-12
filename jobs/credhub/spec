@@ -172,7 +172,7 @@ properties:
 
 # TLS configuration for the server
   credhub.tls:
-    description: "Certificate and private key for TLS connection to CredHub API"
+    description: "Certificate and private key for TLS connection to CredHub API. The certificate must be the leaf certificate, followed by each issuing CA in order (the issuer of each certificate directly after it)."
     type: certificate
     example: |
       certificate: |
