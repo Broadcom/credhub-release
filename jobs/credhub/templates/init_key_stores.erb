@@ -60,6 +60,13 @@ cat > ${PRIVATE_KEY_FILE} <<EOL
 EOL
 
 if [ -s "${CERT_FILE}" ]; then
+    certificate_public_key="$(openssl x509 -in "${CERT_FILE}" -noout -pubkey)"
+    private_key_public_key="$(openssl pkey -in "${PRIVATE_KEY_FILE}" -pubout)"
+    if [ "${certificate_public_key}" != "${private_key_public_key}" ]; then
+        echo "The first certificate in credhub.tls.certificate must be the leaf certificate for credhub.tls.private_key" >&2
+        exit 1
+    fi
+
     PKCS8_KEY_FILE="${tmp_dir}/credhub-key.pk8.pem"
     openssl pkcs8 -topk8 -nocrypt -in "${PRIVATE_KEY_FILE}" -out "${PKCS8_KEY_FILE}"
     mv "${PKCS8_KEY_FILE}" "${PRIVATE_KEY_FILE}"

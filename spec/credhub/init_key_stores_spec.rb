@@ -104,7 +104,7 @@ describe 'credhub job' do
         stdout
       end
 
-      def initialize_key_stores
+      def initialization_script
         keytool = ENV.fetch('PATH').split(File::PATH_SEPARATOR)
           .map { |directory| File.join(directory, 'keytool') }.find { |path| File.executable?(path) }
         raise 'A JDK/JRE with keytool on PATH is required' unless keytool
@@ -113,11 +113,44 @@ describe 'credhub job' do
         # Relocate BOSH paths and map vcap to a real local UID; execute all crypto
         # and filesystem operations. Under root the target UID is unprivileged,
         # so removing a chown is observable rather than masked by the test user.
-        script = template.render(manifest)
+        template.render(manifest)
           .gsub('/var/vcap/packages/openjdk_25.0/jre', java_home)
           .gsub('/var/vcap', @directory)
           .gsub('chown vcap ', "chown #{runtime_uid} ")
-        execute('bash', '-c', script)
+      end
+
+      def initialize_key_stores
+        execute('bash', '-c', initialization_script)
+      end
+
+      it 'rejects a private key that does not match the leaf before normalization' do
+        manifest['credhub']['tls']['private_key'] = ca_key.to_pem
+
+        _stdout, stderr, status = Open3.capture3('bash', '-c', initialization_script)
+
+        expect(status.exitstatus).to eq(1)
+        expect(stderr).to include('must be the leaf certificate for credhub.tls.private_key')
+        expect(File.read(File.join(@config, 'priv.key')).strip).to eq(ca_key.to_pem.strip)
+        expect(File.exist?(File.join(@tmp, 'credhub-key.pk8.pem'))).to be(false)
+      end
+
+      it 'rejects a CA-first bundle even when it contains the matching leaf' do
+        manifest['credhub']['tls']['certificate'] = ca.to_pem + leaf.to_pem
+
+        _stdout, stderr, status = Open3.capture3('bash', '-c', initialization_script)
+
+        expect(status.exitstatus).to eq(1)
+        expect(stderr).to include('must be the leaf certificate for credhub.tls.private_key')
+        expect(File.exist?(File.join(@tmp, 'credhub-key.pk8.pem'))).to be(false)
+      end
+
+      it 'fails during pre-start when the certificate cannot be parsed' do
+        manifest['credhub']['tls']['certificate'] = 'not a certificate'
+
+        _stdout, _stderr, status = Open3.capture3('bash', '-c', initialization_script)
+
+        expect(status.success?).to be(false)
+        expect(File.exist?(File.join(@tmp, 'credhub-key.pk8.pem'))).to be(false)
       end
 
       def passwords

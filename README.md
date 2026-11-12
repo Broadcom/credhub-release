@@ -33,7 +33,9 @@ releases:
 
 CredHub loads `credhub.tls.certificate` and `credhub.tls.private_key` directly
 through Spring Boot's PEM TLS support. Supply the leaf certificate first,
-followed by any intermediate certificates. Pre-start normalizes the private key
+followed by each issuing CA in order, with the issuer of each certificate directly
+after it (and the root last, if included). Pre-start rejects a private key that
+does not match the first certificate. It normalizes the private key
 to unencrypted PKCS#8 and retains `config/cert.crt` and `config/priv.key` under the
 CredHub job directory, owned by `vcap` with mode `0600`. These files must remain
 available while CredHub runs.
