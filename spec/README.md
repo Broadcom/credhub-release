@@ -13,8 +13,9 @@ You can also run the tests from the root of the repository by running
 rspec spec
 ```
 
-The key-store initialization specs execute Bash, OpenSSL, and `keytool`; put a
-JDK or JRE's `bin` directory on `PATH`. They use temporary directories and do not
+The key-store initialization specs execute Bash, OpenSSL, and `keytool`. They use
+`JAVA_HOME` if it is set, otherwise `/usr/libexec/java_home` on macOS, otherwise
+the JDK or JRE whose `keytool` is first on `PATH`. They use temporary directories and do not
 write to the host's `/var/vcap` paths.
 
 Run `credhub/init_key_stores_spec.rb` as root in an isolated Linux test environment
