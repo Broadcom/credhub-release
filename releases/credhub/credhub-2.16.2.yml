@@ -1,0 +1,33 @@
+name: credhub
+version: 2.16.2
+commit_hash: e898d16e
+uncommitted_changes: false
+jobs:
+- name: bbr-credhubdb
+  version: 5a1c6f775d782dfd9b0adb3219f1106b9cddb3c562893d14cb7e9019417e1165
+  fingerprint: 5a1c6f775d782dfd9b0adb3219f1106b9cddb3c562893d14cb7e9019417e1165
+  sha1: sha256:29379545e6c91a2405690bb7bce848ac5814509598f76ee94ef0993719a536d4
+  packages: []
+- name: credhub
+  version: 4056ccff662d29b43ab7844c45e8e3272be60be537f0dabb91871fb25c3b7993
+  fingerprint: 4056ccff662d29b43ab7844c45e8e3272be60be537f0dabb91871fb25c3b7993
+  sha1: sha256:9048c0f4d96d8b525462d63aead464df4b59207f1f3d3a5cebf28a074e0a885b
+  packages:
+  - openjdk_25.0
+  - credhub
+packages:
+- name: credhub
+  version: 46a11a5dd754a2055c1df3e59f480a91c576cfaa53bc0cb4f77cd842ce0ded97
+  fingerprint: 46a11a5dd754a2055c1df3e59f480a91c576cfaa53bc0cb4f77cd842ce0ded97
+  sha1: sha256:c4c2ffefdcc39a1c38c1063c772ecfdf48414747c43d4b2b4cdd8a0466b90808
+  dependencies:
+  - openjdk_25.0
+- name: openjdk_25.0
+  version: 9de539be066b39c48660eb04260f50ce7d00113eebf24a95efcdce0ffed4f38e
+  fingerprint: 9de539be066b39c48660eb04260f50ce7d00113eebf24a95efcdce0ffed4f38e
+  sha1: sha256:42216c0d77a8f5d0ff5ed5f910108f9668fa584cde0b9828c3e7b606dff650e0
+  dependencies: []
+license:
+  version: f4d82bb8760d871939aecd291741071acbf8a532615cf3dab0d86bb6037f359c
+  fingerprint: f4d82bb8760d871939aecd291741071acbf8a532615cf3dab0d86bb6037f359c
+  sha1: sha256:b9f8487bea5994d2dcc956653a9812c5e4f5f11fc417751e6423fdb4a311462a
