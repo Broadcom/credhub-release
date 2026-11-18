@@ -41,6 +41,19 @@ end
 JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} -Djava.library.path=/var/vcap/packages/luna-hsm-client/jsp/64"
 <% end %>
 
+<%
+  additional_java_opts = p('credhub.additional_java_opts').to_s
+  additional_java_opts_literal = nil
+  unless additional_java_opts.strip.empty?
+    # Render as a single-quoted shell literal so quotes and whitespace reach the JVM unchanged.
+    # Embedded single quotes are closed, escaped and reopened ('\'').
+    additional_java_opts_literal = "' #{additional_java_opts.gsub("'") { "'\\''" }}'"
+  end
+%>
+<% if additional_java_opts_literal %>
+JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS}"<%= additional_java_opts_literal %>
+<% end %>
+
 export JAVA_HOME='/var/vcap/packages/openjdk_25.0/jre'
 export PATH="$JAVA_HOME/bin:$PATH"
 export JAVA_TOOL_OPTIONS
