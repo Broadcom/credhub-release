@@ -262,6 +262,14 @@ properties:
   credhub.max_heap_size:
     description: "Maximum memory heap size in MB for CredHub JVM"
     default: 1024
+  credhub.additional_java_opts:
+    description: |
+      Additional JVM options appended to JAVA_TOOL_OPTIONS for the CredHub process. The value is
+      passed through literally, so quoted values containing spaces are supported, for example
+      '-XX:OnOutOfMemoryError="kill -9 %p"'. This is intentionally generic so JVM hot-fix flags
+      (for example "-XX:-UseBASE64Intrinsics") can be applied without a new release.
+    default: ""
+    example: "-XX:-UseBASE64Intrinsics"
 
   # CredHubDeprecatedStartingAfter(2.1.2)
   credhub.java7_tls_ciphers_enabled:

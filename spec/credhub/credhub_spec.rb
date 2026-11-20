@@ -53,6 +53,65 @@ describe 'credhub job' do
       expect(script).to_not include('-jar "credhub.jar"')
     end
 
+    context 'when credhub.additional_java_opts is configured' do
+      def manifest_with_java_opts(java_opts)
+        base_manifest.merge(
+          'credhub' => base_manifest['credhub'].merge('additional_java_opts' => java_opts)
+        )
+      end
+
+      def java_tool_options_line(java_opts)
+        "JAVA_TOOL_OPTIONS=\"${JAVA_TOOL_OPTIONS}\"' #{java_opts}'"
+      end
+
+      it 'appends the options to JAVA_TOOL_OPTIONS' do
+        script = template.render(
+          manifest_with_java_opts('-XX:-UseBASE64Intrinsics -Dsome.flag=true')
+        )
+
+        expect(script).to include(
+          java_tool_options_line('-XX:-UseBASE64Intrinsics -Dsome.flag=true')
+        )
+      end
+
+      it 'preserves quoted values containing spaces' do
+        script = template.render(
+          manifest_with_java_opts('-Dsome.prop="value with spaces"')
+        )
+
+        expect(script).to include(java_tool_options_line('-Dsome.prop="value with spaces"'))
+      end
+
+      it 'quotes the value so the shell does not evaluate it' do
+        script = template.render(manifest_with_java_opts('-Duntrusted=$(id)'))
+
+        expect(script).to include(java_tool_options_line('-Duntrusted=$(id)'))
+      end
+
+      it 'escapes embedded single quotes' do
+        script = template.render(manifest_with_java_opts(%(-Dsome.prop="it's")))
+
+        expect(script).to include(
+          "JAVA_TOOL_OPTIONS=\"${JAVA_TOOL_OPTIONS}\"' -Dsome.prop=\"it'\\''s\"'"
+        )
+      end
+
+      it 'is appended after the release-managed options' do
+        manifest = manifest_with_java_opts('-Dsome.flag=true')
+        manifest['credhub']['encryption']['providers'] = hsm_manifest['credhub']['encryption']['providers']
+
+        script = template.render(manifest)
+
+        expect(script.index('-Djava.library.path')).to be < script.index('-Dsome.flag=true')
+      end
+    end
+
+    context 'when credhub.additional_java_opts is not configured' do
+      it 'does not append extra options' do
+        expect(template.render(base_manifest)).to_not include('JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS}"')
+      end
+    end
+
     context 'when no HSM provider is configured' do
       it 'does not reference the Luna client or java.library.path' do
         script = template.render(base_manifest)
