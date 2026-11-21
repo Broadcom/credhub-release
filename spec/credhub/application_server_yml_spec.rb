@@ -18,16 +18,18 @@ describe 'credhub job' do
         expect(rendered_template['server']['port']).to eq(8844)
       end
 
-      it 'enables SSL with a key store' do
+      it 'enables SSL with PEM certificate and private key' do
         manifest = { 'credhub' => {} }
         rendered_template = YAML.safe_load(template.render(manifest))
 
         expect(rendered_template['server']['ssl']['enabled']).to eq(true)
         expect(rendered_template['server']['ssl']['enabled_protocols']).to eq('TLSv1.2,TLSv1.3')
-        expect(rendered_template['server']['ssl']['key_store']).to eq('/var/vcap/jobs/credhub/config/cacerts.jks')
-        expect(rendered_template['server']['ssl']['key_password']).to eq('${KEY_STORE_PASSWORD}')
-        expect(rendered_template['server']['ssl']['key_store_password']).to eq('${KEY_STORE_PASSWORD}')
-        expect(rendered_template['server']['ssl']['key_alias']).to eq('credhub_tls_cert')
+        expect(rendered_template['server']['ssl']['certificate']).to eq('/var/vcap/jobs/credhub/config/cert.crt')
+        expect(rendered_template['server']['ssl']['certificate-private-key']).to eq('/var/vcap/jobs/credhub/config/priv.key')
+        expect(rendered_template['server']['ssl']['key_store']).to be_nil
+        expect(rendered_template['server']['ssl']['key_password']).to be_nil
+        expect(rendered_template['server']['ssl']['key_store_password']).to be_nil
+        expect(rendered_template['server']['ssl']['key_alias']).to be_nil
       end
 
       it 'uses default ciphers in the correct order' do
