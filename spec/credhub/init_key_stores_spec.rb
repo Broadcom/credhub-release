@@ -78,11 +78,16 @@ describe 'credhub job' do
           @directory = directory
           @config = File.join(directory, 'jobs/credhub/config')
           @tmp = File.join(directory, 'jobs/credhub/tmp')
-          FileUtils.chmod(0755, directory)
+          FileUtils.chmod(0o755, directory)
           FileUtils.mkdir_p([@config, @tmp])
           File.write(File.join(@config, 'database_ca.pem'), '')
           example.run
         end
+      end
+
+      def apply_validity(cert)
+        cert.not_before = Time.utc(2020)
+        cert.not_after = Time.utc(2040)
       end
 
       def certificate(public_key, serial, issuer = nil, signing_key = public_key)
@@ -90,11 +95,10 @@ describe 'credhub job' do
         cert.version = 2
         cert.serial = serial
         cert.subject = OpenSSL::X509::Name.parse("/CN=init-test-#{serial}")
-        cert.issuer = issuer ? issuer.subject : cert.subject
+        cert.issuer = (issuer || cert).subject
         cert.public_key = public_key.public_key
-        cert.not_before = Time.utc(2020)
-        cert.not_after = Time.utc(2040)
-        cert.sign(signing_key, OpenSSL::Digest::SHA256.new)
+        apply_validity(cert)
+        cert.sign(signing_key, OpenSSL::Digest.new('SHA256'))
         cert
       end
 
@@ -104,19 +108,22 @@ describe 'credhub job' do
         stdout
       end
 
-      def initialization_script
-        keytool = ENV.fetch('PATH').split(File::PATH_SEPARATOR)
-          .map { |directory| File.join(directory, 'keytool') }.find { |path| File.executable?(path) }
+      def java_home
+        candidates = ENV.fetch('PATH').split(File::PATH_SEPARATOR).map { |directory| File.join(directory, 'keytool') }
+        keytool = candidates.find { |path| File.executable?(path) }
         raise 'A JDK/JRE with keytool on PATH is required' unless keytool
 
-        java_home = File.dirname(File.dirname(File.realpath(keytool)))
+        File.dirname(File.dirname(File.realpath(keytool)))
+      end
+
+      def initialization_script
         # Relocate BOSH paths and map vcap to a real local UID; execute all crypto
         # and filesystem operations. Under root the target UID is unprivileged,
         # so removing a chown is observable rather than masked by the test user.
         template.render(manifest)
-          .gsub('/var/vcap/packages/openjdk_25.0/jre', java_home)
-          .gsub('/var/vcap', @directory)
-          .gsub('chown vcap ', "chown #{runtime_uid} ")
+                .gsub('/var/vcap/packages/openjdk_25.0/jre', java_home)
+                .gsub('/var/vcap', @directory)
+                .gsub('chown vcap ', "chown #{runtime_uid} ")
       end
 
       def initialize_key_stores
@@ -158,14 +165,14 @@ describe 'credhub job' do
       end
 
       def expect_private_file(path)
-        expect(File.stat(path).mode & 0777).to eq(0600)
+        expect(File.stat(path).mode & 0o777).to eq(0o600)
         expect(File.stat(path).uid).to eq(runtime_uid)
       end
 
       it 'normalizes the key and retains its certificate chain without any truststores' do
         File.write(File.join(@config, 'cacerts.jks'), 'old identity keystore')
         File.write(File.join(@tmp, 'var-store'), "export KEY_STORE_PASSWORD=old\n")
-        File.chmod(0644, File.join(@tmp, 'var-store'))
+        File.chmod(0o644, File.join(@tmp, 'var-store'))
 
         initialize_key_stores
 
@@ -198,7 +205,7 @@ describe 'credhub job' do
           entries.each do |store, password, alias_name, expected_cert|
             path = File.join(@config, "#{store}.jks")
             exported = execute('keytool', '-exportcert', '-rfc', '-keystore', path,
-              '-storepass', passwords.fetch(password), '-alias', alias_name)
+                               '-storepass', passwords.fetch(password), '-alias', alias_name)
             expect(OpenSSL::X509::Certificate.new(exported).to_der).to eq(expected_cert.to_der)
             expect_private_file(path)
           end
@@ -212,7 +219,7 @@ describe 'credhub job' do
         var_store = Shellwords.escape(File.join(@tmp, 'var-store'))
         private_key = Shellwords.escape(File.join(@config, 'priv.key'))
         output = execute('bash', '-c', "set -euo pipefail; source #{var_store}; " \
-          "openssl pkey -in #{private_key} -pubout; printf '%s' \"$TRUST_STORE_PASSWORD\"", uid: runtime_uid)
+                                       "openssl pkey -in #{private_key} -pubout; printf '%s' \"$TRUST_STORE_PASSWORD\"", uid: runtime_uid)
         expect(output).to eq(key.public_to_pem + passwords.fetch('TRUST_STORE_PASSWORD'))
       end
     end
