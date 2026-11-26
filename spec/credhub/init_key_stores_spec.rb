@@ -66,6 +66,8 @@ describe 'credhub job' do
       let(:leaf) { certificate(key, 2, ca, ca_key) }
       let(:chain) { leaf.to_pem + ca.to_pem }
       let(:runtime_uid) { Process.uid.zero? ? Etc.getpwnam('nobody').uid : Process.uid }
+      # chown by name: BSD chown rejects macOS nobody's UID (-2, reported as 4294967294).
+      let(:runtime_owner) { Process.uid.zero? ? 'nobody' : Process.uid.to_s }
       let(:manifest) do
         { 'credhub' => {
           'tls' => { 'certificate' => chain, 'private_key' => key.to_pem },
@@ -74,7 +76,9 @@ describe 'credhub job' do
       end
 
       around do |example|
-        Dir.mktmpdir('credhub-init-') do |directory|
+        # Under root, macOS TMPDIR is a root-only 0700 directory that the
+        # unprivileged runtime user cannot traverse; /tmp is world-traversable.
+        Dir.mktmpdir('credhub-init-', Process.uid.zero? ? '/tmp' : Dir.tmpdir) do |directory|
           @directory = directory
           @config = File.join(directory, 'jobs/credhub/config')
           @tmp = File.join(directory, 'jobs/credhub/tmp')
@@ -109,11 +113,25 @@ describe 'credhub job' do
       end
 
       def java_home
+        configured = ENV.fetch('JAVA_HOME', '')
+        return configured if File.executable?(File.join(configured, 'bin', 'keytool'))
+
+        # On macOS /usr/bin/keytool is a launcher stub, not a symlink into a JDK;
+        # deriving JAVA_HOME=/usr from it makes the stub re-exec itself forever.
+        if RUBY_PLATFORM.include?('darwin')
+          home, status = Open3.capture2('/usr/libexec/java_home')
+          return home.strip if status.success?
+        end
+
+        File.dirname(File.dirname(File.realpath(keytool_on_path)))
+      end
+
+      def keytool_on_path
         candidates = ENV.fetch('PATH').split(File::PATH_SEPARATOR).map { |directory| File.join(directory, 'keytool') }
         keytool = candidates.find { |path| File.executable?(path) }
         raise 'A JDK/JRE with keytool on PATH is required' unless keytool
 
-        File.dirname(File.dirname(File.realpath(keytool)))
+        keytool
       end
 
       def initialization_script
@@ -123,7 +141,7 @@ describe 'credhub job' do
         template.render(manifest)
                 .gsub('/var/vcap/packages/openjdk_25.0/jre', java_home)
                 .gsub('/var/vcap', @directory)
-                .gsub('chown vcap ', "chown #{runtime_uid} ")
+                .gsub('chown vcap ', "chown #{runtime_owner} ")
       end
 
       def initialize_key_stores

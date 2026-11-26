@@ -73,7 +73,7 @@ if [ -s "${CERT_FILE}" ]; then
 fi
 
 if [ $(cat $DATABASE_TLS_CA_FILE | wc -c) -ge 2 ]; then
-  cat $DATABASE_TLS_CA_FILE | awk 'split_after==1{n++;split_after=0} /-----END CERTIFICATE-----/ {split_after=1} { print > "/var/vcap/jobs/credhub/config/db-tls-ca" n ".pem" }'
+  cat $DATABASE_TLS_CA_FILE | awk 'split_after==1{n++;split_after=0} /-----END CERTIFICATE-----/ {split_after=1} { print > ("/var/vcap/jobs/credhub/config/db-tls-ca" n ".pem") }'
 
   COUNTER=1
   for f in /var/vcap/jobs/credhub/config/db-tls-ca*.pem; do
